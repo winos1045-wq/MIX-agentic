@@ -1,4 +1,4 @@
-## main.py  —  MIX Agent
+## main.py  —  MIX Agent latest
 import os
 import sys
 import json
@@ -48,9 +48,15 @@ except ImportError:
     _CODESPACE_AVAILABLE = False
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.syntax import Syntax
+from rich.panel   import Panel
+from rich.syntax  import Syntax
 from rich.logging import RichHandler
+from rich.markdown import Markdown
+from rich.rule     import Rule
+from rich.text     import Text
+from rich.columns  import Columns
+from rich.padding  import Padding
+from rich.theme    import Theme as RichTheme
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, merge_completers
@@ -74,6 +80,29 @@ class Theme:
     GRAY   = "#374151"
     SLATE  = "#94A3B8"
     PINK   = "#F472B6"
+
+
+# Rich console theme — overrides Rich's default magenta/pink markdown headings
+RICH_THEME = RichTheme({
+    "markdown.h1":           "bold white",
+    "markdown.h1.border":    "white",
+    "markdown.h2":           "bold white",
+    "markdown.h2.border":    "dim white",
+    "markdown.h3":           "bold white",
+    "markdown.h4":           "bold white",
+    "markdown.h5":           "bold white",
+    "markdown.h6":           "dim white",
+    "markdown.hr":           "dim #374151",
+    "markdown.code":         "bold #06B6D4",
+    "markdown.code_block":   "default",
+    "markdown.block_quote":  "italic #94A3B8",
+    "markdown.item.bullet":  "bold #FF8C42",
+    "markdown.item.number":  "bold #FF8C42",
+    "markdown.link":         "underline #3B82F6",
+    "markdown.link_url":     "underline dim #3B82F6",
+    "table.header":          "bold white",
+    "markdown.table.header": "bold white",
+})
 
 
 # ============================================================================
@@ -146,13 +175,6 @@ class FilePathCompleter(Completer):
                                  display=f"@{entry}")
 
 
-autocomplete_style = PromptStyle.from_dict({
-    'completion-menu':                    'bg:#0d1117 fg:#6B7280',
-    'completion-menu.completion.current': 'bg:#1c2128 fg:#58a6ff',
-    'completion-menu.completion':         'fg:#6B7280',
-})
-
-
 # ============================================================================
 # TERMINAL UTILITIES
 # ============================================================================
@@ -173,7 +195,7 @@ class TerminalUtils:
             return 24
 
     @staticmethod
-    def truncate_text(text: str, max_width: int, suffix: str = "…") -> str:
+    def truncate_text(text: str, max_width: int, suffix: str = "...") -> str:
         return text if len(text) <= max_width else text[:max_width - len(suffix)] + suffix
 
     @staticmethod
@@ -197,13 +219,30 @@ class TerminalUtils:
     def is_narrow() -> bool:
         return TerminalUtils.get_width() < 80
 
+    @staticmethod
+    def is_narrow_terminal() -> bool:
+        return TerminalUtils.get_width() < 60
+
+    @staticmethod
+    def create_robot() -> str:
+        """Block-character robot for the startup banner."""
+        if TerminalUtils.is_narrow_terminal():
+            return ""
+        return (
+            "         \u2580\u2584     \u2584\u2580\n"
+            "         \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\n"
+            "         \u2588\u2584\u2588\u2588\u2588\u2588\u2588\u2584\u2588\n"
+            "         \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\n"
+            "         \u2588 \u2588   \u2588 \u2588\n"
+        )
+
 
 # ============================================================================
 # STATUS BAR
 # ============================================================================
 
 class StatusBar:
-    SPINNERS = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷']
+    SPINNERS = ['\u28fe', '\u28fd', '\u28fb', '\u28bf', '\u287f', '\u28df', '\u28ef', '\u28f7']
 
     def __init__(self):
         self.running           = False
@@ -259,8 +298,9 @@ class StatusBar:
             t_str   = self._fmt_time(elapsed)
             with self._lock:
                 total = self.prompt_tokens + self.completion_tokens
-            tok_str = f"{total:,} tok" if total else "…"
-            line    = f" {frame} {self._phase}  {t_str}  ·  {tok_str}  ·  esc to cancel"
+            tok_str = f"{total:,} tok" if total else ""
+            sep     = "  .  " if tok_str else ""
+            line    = f" {frame}  {self._phase}  {t_str}{sep}{tok_str}  .  esc to cancel"
             self._erase()
             sys.stdout.write(f"\033[2m{line}\033[0m")
             sys.stdout.flush()
@@ -276,7 +316,7 @@ class StatusBar:
         self.stop()
 
 
-StatusTracker = StatusBar   # backward compat
+StatusTracker = StatusBar
 
 
 # ============================================================================
@@ -312,7 +352,7 @@ class TokenCounter:
         if counts["thinking"]: parts.append(f"think {counts['thinking']:,}")
         if counts["cached"]:   parts.append(f"cached {counts['cached']:,}")
         parts.append(f"session {self.session_total:,}")
-        return "  ↳ " + "  ·  ".join(parts)
+        return "  " + "  .  ".join(parts)
 
     def format_status(self) -> str:
         lines = [
@@ -330,7 +370,7 @@ class TokenCounter:
 
 
 # ============================================================================
-# LOGGER  — console only, no files
+# LOGGER
 # ============================================================================
 
 class Logger:
@@ -338,8 +378,8 @@ class Logger:
         self.monitoring_enabled = False
         logging.basicConfig(
             level=logging.WARNING,
-            handlers=[RichHandler(console=Console(), show_time=True,
-                                  show_path=False)]
+            handlers=[RichHandler(console=Console(theme=RICH_THEME),
+                                  show_time=True, show_path=False)]
         )
         self.logger = logging.getLogger("MIX")
         self._set_external(False)
@@ -367,7 +407,7 @@ class Logger:
 
 
 # ============================================================================
-# SESSION — in-memory only, no file I/O
+# SESSION
 # ============================================================================
 
 CONTEXT_WINDOW_MESSAGES = 25
@@ -433,7 +473,6 @@ class CommandHandler:
     def handle(self, text: str) -> Optional[str]:
         stripped = text.strip().lstrip('/')
 
-        # ── agent commands ────────────────────────────────────────────────────
         if stripped == 'agent' or stripped.startswith('agent '):
             return self._handle_agent(stripped)
 
@@ -448,23 +487,19 @@ class CommandHandler:
         if cmd == 'status':               return self._show_status()
         if cmd == 'monitor_on':
             self.logger.enable_monitoring()
-            return "✓ Monitoring enabled"
+            return "Monitoring enabled"
         if cmd == 'monitor_off':
             self.logger.disable_monitoring()
-            return "✓ Monitoring disabled"
+            return "Monitoring disabled"
         return None
-
-    # ── /agent sub-commands ───────────────────────────────────────────────────
 
     def _handle_agent(self, raw: str) -> str:
         parts = raw.split(maxsplit=1)
         sub   = parts[1].strip() if len(parts) > 1 else ""
 
-        # /agent status
         if sub in ("status", "st"):
             return self.group.format_status()
 
-        # /agent leave
         if sub == "leave":
             if not self.group.is_active:
                 return "  Not in any group."
@@ -472,7 +507,6 @@ class CommandHandler:
             self.group.leave()
             return f"  Left group  {name}"
 
-        # /agent inbox
         if sub == "inbox":
             if not self.group.is_active:
                 return "  Not in any group."
@@ -483,12 +517,11 @@ class CommandHandler:
             for m in msgs:
                 lines.append(
                     f"  From  {m['from_name']} [{m['from_rank']}]"
-                    f"  ·  {m['ts'][11:16]}\n"
+                    f"  .  {m['ts'][11:16]}\n"
                     f"  {m['message']}\n"
                 )
             return "\n".join(lines)
 
-        # /agent broadcast <message>
         if sub.startswith("broadcast "):
             msg = sub[len("broadcast "):].strip()
             if not self.group.is_active:
@@ -496,90 +529,74 @@ class CommandHandler:
             n = self.group.broadcast(msg)
             return f"  Broadcast sent to {n} agent(s)."
 
-        # /agent send <id_prefix> <message>
         if sub.startswith("send "):
             rest  = sub[len("send "):].strip()
             tok   = rest.split(maxsplit=1)
             if len(tok) < 2:
-                return "  Usage:  /agent (beta) send <id_prefix> <message>"
+                return "  Usage:  /agent send <id_prefix> <message>"
             id_prefix, msg = tok
             member = self.group.get_member_by_prefix(id_prefix)
             if not member:
                 return f"  No agent with id starting '{id_prefix}'."
             ok = self.group.send(member["id"], msg)
             if ok:
-                return f"  ✓ Sent to {member['name']}  [{member['id']}]"
-            return f"  ✗ Could not reach {member['name']}"
+                return f"  Sent to {member['name']}  [{member['id']}]"
+            return f"  Could not reach {member['name']}"
 
-        # /agent  — wizard: join or create
         return self._agent_wizard()
 
     def _agent_wizard(self) -> str:
-        """Interactive join/create wizard."""
         self.console.print()
         self.console.print(
-            f"  [{Theme.CYAN}]◈  Agent Group[/{Theme.CYAN}]"
+            f"  [{Theme.CYAN}]Agent Group[/{Theme.CYAN}]"
             f"  [dim]Link agents across terminals[/dim]"
         )
         self.console.print()
-
-        group_name  = self.console.input(
+        group_name = self.console.input(
             f"  [{Theme.SLATE}]Group name :[/{Theme.SLATE}] "
         ).strip()
         if not group_name:
             return "  Cancelled."
-
-        agent_name  = self.console.input(
+        agent_name = self.console.input(
             f"  [{Theme.SLATE}]Agent name :[/{Theme.SLATE}] "
         ).strip()
         if not agent_name:
             return "  Cancelled."
+        self.console.print(f"\n  [dim]Connecting to group  {group_name} ...[/dim]")
 
-        self.console.print(
-            f"\n  [dim]Connecting to group  {group_name} …[/dim]"
-        )
-
-        # on_message callback — prints inbox notifications live
         ui_console = self.console
 
         def _on_msg(msg: Dict):
-            # Print inline notification without breaking current prompt
             ui_console.print()
             ui_console.print(
-                f"  [{Theme.PINK}]◈  {msg['from_name']}"
-                f"[/{Theme.PINK}]"
-                f"  [dim]{msg['from_rank']}  ·  {msg['from_id'][:8]}"
-                f"  ·  {msg['type']}[/dim]"
+                f"  [{Theme.PINK}]{msg['from_name']}[/{Theme.PINK}]"
+                f"  [dim]{msg['from_rank']}  .  {msg['from_id'][:8]}"
+                f"  .  {msg['type']}[/dim]"
             )
             ui_console.print(
-                f"  [dim]│[/dim]  [bold {Theme.TEXT}]{msg['message']}[/bold {Theme.TEXT}]"
+                f"  [dim]|[/dim]  [bold {Theme.TEXT}]{msg['message']}[/bold {Theme.TEXT}]"
             )
             ui_console.print()
 
-        info = self.group.join(group_name, agent_name, on_message=_on_msg)
-
+        info   = self.group.join(group_name, agent_name, on_message=_on_msg)
         action = "Created" if info["created"] else "Joined"
-        lines  = [
-            f"\n  [{Theme.GREEN}]✓  {action} group[/{Theme.GREEN}]"
-            f"  [bold]{group_name}[/bold]\n",
-            f"  Name    {agent_name}",
-            f"  ID      {info['id']}",
-            f"  Rank    {info['rank']}",
-            f"  Members {len(info['members'])}",
-        ]
-        self.console.print("\n".join(lines))
-
+        self.console.print(
+            f"\n  [{Theme.GREEN}]{action} group[/{Theme.GREEN}]"
+            f"  [bold]{group_name}[/bold]\n"
+        )
+        self.console.print(f"  Name    {agent_name}")
+        self.console.print(f"  ID      {info['id']}")
+        self.console.print(f"  Rank    {info['rank']}")
+        self.console.print(f"  Members {len(info['members'])}")
         if len(info["members"]) > 1:
-            self.console.print(f"\n  [{Theme.SLATE}]Members in group:[/{Theme.SLATE}]")
+            self.console.print(f"\n  [{Theme.SLATE}]Members:[/{Theme.SLATE}]")
             for m in info["members"].values():
-                marker = "▶" if m["id"] == info["id"] else "○"
+                marker = ">" if m["id"] == info["id"] else " "
                 self.console.print(
                     f"    {marker}  {m['name']:<18} {m['rank']:<10} {m['id']}"
                 )
         self.console.print()
         return ""
-
-    # ── other commands ────────────────────────────────────────────────────────
 
     def _show_help(self) -> str:
         lines = ["Available Commands\n\n"]
@@ -604,7 +621,7 @@ class CommandHandler:
             role    = msg['role'].upper()
             content = msg['content']
             if len(content) > max_w:
-                content = content[:max_w] + "…"
+                content = content[:max_w] + "..."
             lines.append(f"  {i:2}. [{role}] {content}\n")
         return ''.join(lines)
 
@@ -612,14 +629,14 @@ class CommandHandler:
         cwd   = os.getcwd()
         width = TerminalUtils.get_width()
         if len(cwd) > width - 25:
-            cwd = "…" + cwd[-(width - 28):]
+            cwd = "..." + cwd[-(width - 28):]
         mon = "ON" if self.logger.monitoring_enabled else "OFF"
-        cs  = "✓ available" if _CODESPACE_AVAILABLE else "✗ not installed"
+        cs  = "available" if _CODESPACE_AVAILABLE else "not installed"
         ctx = (f"{len(self.session.history)} msgs "
                f"(sending last {CONTEXT_WINDOW_MESSAGES})")
         grp = (
-            f"{self.group.group_name}  ·  {self.group.agent_id}  "
-            f"·  {self.group.agent_rank}"
+            f"{self.group.group_name}  .  {self.group.agent_id}  "
+            f".  {self.group.agent_rank}"
             if self.group.is_active else "not joined"
         )
         return (
@@ -629,11 +646,97 @@ class CommandHandler:
             f"  Monitoring   {mon}\n"
             f"  Codespace    {cs}\n"
             f"  Agent group  {grp}\n"
-            f"  Path guard   ✓ active\n"
-            f"  @ injection  ✓ active\n"
-            f"  Terminal     {width}×{TerminalUtils.get_height()}\n\n"
+            f"  Path guard   active\n"
+            f"  @ injection  active\n"
+            f"  Terminal     {width}x{TerminalUtils.get_height()}\n\n"
             + self.tokens.format_status()
         )
+
+
+# ============================================================================
+# MARKDOWN RENDERER
+# ============================================================================
+
+class MarkdownRenderer:
+    """
+    Splits AI response text into prose segments and fenced code blocks.
+    - Prose (including ### headers, | tables |, **bold**, lists) ->
+      Rich Markdown engine, which respects RICH_THEME for white headings.
+    - Fenced code blocks -> Rich Syntax for language highlighting.
+    """
+
+    LANG_ALIASES: Dict[str, str] = {
+        "js":         "javascript",
+        "ts":         "typescript",
+        "py":         "python",
+        "sh":         "bash",
+        "shell":      "bash",
+        "zsh":        "bash",
+        "yml":        "yaml",
+        "md":         "markdown",
+        "dockerfile": "docker",
+        "":           "text",
+    }
+
+    def __init__(self, console: Console):
+        self.console = console
+
+    def render(self, text: str):
+        self.console.print()
+        for kind, content in self._split_segments(text):
+            if kind == "code":
+                lang, code = content
+                self._render_code_block(lang, code)
+            else:
+                # Rich Markdown renders tables, headers (white via RICH_THEME),
+                # bold, italic, bullet lists, blockquotes, horizontal rules.
+                md = Markdown(content, code_theme="github-dark", hyperlinks=True)
+                self.console.print(Padding(md, (0, 2)))
+        self.console.print()
+
+    @staticmethod
+    def _split_segments(text: str) -> List[tuple]:
+        segments = []
+        pattern  = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
+        cursor   = 0
+        for m in pattern.finditer(text):
+            prose = text[cursor:m.start()].strip()
+            if prose:
+                segments.append(("text", prose))
+            lang = m.group(1).strip().lower()
+            code = m.group(2)
+            segments.append(("code", (lang, code)))
+            cursor = m.end()
+        tail = text[cursor:].strip()
+        if tail:
+            segments.append(("text", tail))
+        return segments
+
+    def _render_code_block(self, lang: str, code: str):
+        resolved = self.LANG_ALIASES.get(lang, lang) or "text"
+        label    = lang.upper() if lang else "CODE"
+        width    = min(TerminalUtils.get_width() - 8, 80)
+
+        self.console.print(
+            f"  [dim]+-[/dim] [{Theme.CYAN}]{label}[/{Theme.CYAN}]"
+        )
+        try:
+            syntax = Syntax(
+                code.rstrip(),
+                resolved,
+                theme="github-dark",
+                line_numbers=not TerminalUtils.is_narrow(),
+                word_wrap=True,
+                padding=(0, 2),
+                background_color="default",
+            )
+            self.console.print(Padding(syntax, (0, 2)))
+        except Exception:
+            for line in code.rstrip().splitlines():
+                self.console.print(f"  [dim]{line}[/dim]")
+
+        self.console.print(f"  [dim]+{'-' * min(width, 56)}[/dim]")
+        self.console.print()
 
 
 # ============================================================================
@@ -642,49 +745,96 @@ class CommandHandler:
 
 class UI:
     def __init__(self):
-        self.console = Console(highlight=False)
+        # RICH_THEME makes all Markdown output use white headers
+        self.console = Console(highlight=False, theme=RICH_THEME)
+        self._md     = MarkdownRenderer(self.console)
 
-    def clear(self):
+    # ── banner ────────────────────────────────────────────────────────────────
+
+    def welcome_screen(self, model_name: str = ""):
+        from rich.table import Table
+        from rich import box as rich_box
+
         self.console.clear()
+        self.console.print()
 
-    def welcome_screen(self):
-        self.clear()
-        width = TerminalUtils.get_width()
+        robot = TerminalUtils.create_robot()
         cwd   = os.getcwd()
-        if len(cwd) > width - 10:
-            cwd = "…" + cwd[-(width - 13):]
+        width = TerminalUtils.get_width()
+        if len(cwd) > width - 18:
+            cwd = "..." + cwd[-(width - 21):]
 
-        self.console.print()
-        self.console.print(
-            f"[bold {Theme.ORANGE}]  ✻  MIX Agent[/bold {Theme.ORANGE}]"
-            f"  [dim]by FAHFAH MOHAMED[/dim]"
-        )
-        self.console.print(f"  [dim]{'─' * min(width - 4, 60)}[/dim]")
-        self.console.print(f"  [dim]{cwd}[/dim]")
-        self.console.print()
-        self.console.print(
-            f"  [dim]Type [/dim][bold white]/help[/bold white]"
-            f"[dim] for commands · [/dim][bold white]/agent (Beta)[/bold white]"
-            f"[dim] to link agents · [/dim][bold white]@file[/bold white]"
-            f"[dim] to inject[/dim]"
-        )
-        self.console.print()
+        build = datetime.now().strftime("%Y.%m.%d")
 
-    def separator(self):
-        w = min(TerminalUtils.get_width(), 80)
-        self.console.print(f"[{Theme.GRAY}]{'─' * w}[/{Theme.GRAY}]")
+        if not TerminalUtils.is_narrow():
+            left = Text(justify="left")
+            left.append(" ✻ MIX Agent\n",                                style=f"bold {Theme.TEXT}")
+            left.append(" │\n",                                          style=f"dim {Theme.GRAY}")
+            left.append(" └── /help for commands  .  @file to inject\n", style=f"italic {Theme.SLATE}")
+            left.append("     /agent (beta) link agents\n\n",            style=f"italic {Theme.SLATE}")
+            if model_name:
+                left.append(f" {model_name}  .  MIX\n",                 style=f"dim")
+            left.append(f" {cwd}\n",                                     style=f"dim {Theme.SLATE}")
+            left.append(" DEV by : FAHFAH MOHAMED",                      style=f"italic {Theme.SLATE}")
+
+            robot_width = 22
+            safe_width  = max(40, width - robot_width - 15)
+            layout = Table.grid(expand=False, padding=(0, 3))
+            layout.add_column(width=safe_width)
+            layout.add_column(width=robot_width, justify="right")
+            layout.add_row(
+                left,
+                Text(robot, style=f"bold {Theme.ORANGE}", justify="left")
+            )
+            content = layout
+        else:
+            content = Text(justify="left")
+            content.append("✻ MIX Agent\n",           style=f"bold {Theme.TEXT}")
+            content.append(robot + "\n",               style=f"bold {Theme.ORANGE}")
+            content.append("/help for commands\n",     style=f"italic {Theme.SLATE}")
+            content.append("@file to inject\n",        style=f"italic {Theme.SLATE}")
+            if model_name:
+                content.append(f"{model_name}  .  MIX\n", style="dim")
+            content.append(f"{cwd}\n",                 style=f"dim {Theme.SLATE}")
+            content.append("DEV by : FAHFAH MOHAMED",  style=f"italic {Theme.SLATE}")
+
+        panel_title = (
+            f"[dim {Theme.SLATE}]{model_name}  .  v{build}[/dim {Theme.SLATE}]"
+            if model_name else
+            f"[dim {Theme.SLATE}]v{build}[/dim {Theme.SLATE}]"
+        )
+
+        self.console.print(Panel(
+            content,
+            title=panel_title,
+            title_align="right",
+            border_style=Theme.ORANGE,
+            box=rich_box.ROUNDED,
+            padding=(1, 2),
+        ))
+        self.console.print()
+    # ── separator ─────────────────────────────────────────────────────────────
+
+    def separator(self, label: str = ""):
+        w = min(TerminalUtils.get_width(), 88)
+        if label:
+            self.console.print(Rule(label, style=Theme.GRAY))
+        else:
+            self.console.print(f"[{Theme.GRAY}]{'-' * w}[/{Theme.GRAY}]")
+
+    # ── file injection report ─────────────────────────────────────────────────
 
     def print_injection_report(self, result: InjectionResult):
         if result.injected:
             for p in result.injected:
                 self.console.print(
-                    f"  [dim]⊕[/dim] [bold {Theme.CYAN}]{p}[/bold {Theme.CYAN}]"
-                    f"[dim] → injected[/dim]"
+                    f"  [dim]+[/dim] [{Theme.CYAN}]{p}[/{Theme.CYAN}]"
+                    f"[dim] injected[/dim]"
                 )
         if result.blocked:
             for p, reason in result.blocked:
                 self.console.print(
-                    f"  [dim]⊗[/dim] [{Theme.RED}]{p}[/{Theme.RED}]"
+                    f"  [dim]x[/dim] [{Theme.RED}]{p}[/{Theme.RED}]"
                     f"[dim]  {reason.split(chr(10))[0]}[/dim]"
                 )
         if result.missing:
@@ -696,119 +846,113 @@ class UI:
         if result.injected or result.blocked or result.missing:
             self.console.print()
 
+    # ── tool execution row ────────────────────────────────────────────────────
+
     def print_tool_execution(self, tool_name: str, args: Dict[str, Any],
                               result: str = None):
         DISPATCH: Dict[str, tuple] = {
-            "get_file_content":     ("Read",    "file_path",       Theme.BLUE),
-            "write_file":           ("Write",   "file_path",       Theme.GREEN),
-            "patch_file":           ("Patch",   "file_path",       Theme.YELLOW),
-            "run_shell":            ("Shell",   "command",         Theme.PURPLE),
-            "run_python_file":      ("Python",  "file_path",       Theme.CYAN),
-            "get_files_info":       ("List",    "path",            Theme.SLATE),
-            "build_project":        ("Build",   "build_tool",      Theme.ORANGE),
-            "install_dependencies": ("Install", "package_manager", Theme.ORANGE),
-            "plan_project":         ("Plan",    "task_description",Theme.BLUE),
-            "cs_run_shell":         ("CS·Shell","command",         Theme.PURPLE),
-            "cs_write_file":        ("CS·Write","file_path",       Theme.GREEN),
-            "cs_read_file":         ("CS·Read", "file_path",       Theme.BLUE),
-            "cs_patch_file":        ("CS·Patch","file_path",       Theme.YELLOW),
+            "get_file_content":     ("Read",    "file_path",        Theme.BLUE),
+            "write_file":           ("Write",   "file_path",        Theme.GREEN),
+            "patch_file":           ("Patch",   "file_path",        Theme.YELLOW),
+            "run_shell":            ("Shell",   "command",          Theme.PURPLE),
+            "run_python_file":      ("Python",  "file_path",        Theme.CYAN),
+            "get_files_info":       ("List",    "path",             Theme.SLATE),
+            "build_project":        ("Build",   "build_tool",       Theme.ORANGE),
+            "install_dependencies": ("Install", "package_manager",  Theme.ORANGE),
+            "plan_project":         ("Plan",    "task_description", Theme.BLUE),
+            "search_code":          ("Search",  "pattern",          Theme.PINK),
+            "get_project_map":      ("Map",     "path",             Theme.CYAN),
+            "verify_change":        ("Verify",  "file_path",        Theme.GREEN),
+            "web_search":           ("Web",     "query",            Theme.BLUE),
+            "web_fetch":            ("Fetch",   "url",              Theme.BLUE),
+            "cs_run_shell":         ("CS Shell","command",          Theme.PURPLE),
+            "cs_write_file":        ("CS Write","file_path",        Theme.GREEN),
+            "cs_read_file":         ("CS Read", "file_path",        Theme.BLUE),
+            "cs_patch_file":        ("CS Patch","file_path",        Theme.YELLOW),
         }
         if tool_name in DISPATCH:
             label, key, color = DISPATCH[tool_name]
-            val_str = TerminalUtils.truncate_text(str(args.get(key, "") or ""), 60)
+            val_str = TerminalUtils.truncate_text(str(args.get(key, "") or ""), 62)
         else:
             label   = tool_name.replace("_", " ").title()
             color   = Theme.SLATE
             vals    = list(args.values())
-            val_str = TerminalUtils.truncate_text(str(vals[0]), 60) if vals else ""
+            val_str = TerminalUtils.truncate_text(str(vals[0]), 62) if vals else ""
 
         self.console.print(
-            f"  [dim]│[/dim] [{color}]{label:<8}[/{color}]"
+            f"  [{Theme.GRAY}]|[/{Theme.GRAY}] "
+            f"[{color}]{label:<8}[/{color}]"
             f"  [bold white]{val_str}[/bold white]"
         )
         if result:
             first = TerminalUtils.truncate_text(
                 str(result).strip().split('\n')[0], 72
             )
-            self.console.print(f"  [dim]│         {first}[/dim]")
+            self.console.print(
+                f"  [{Theme.GRAY}]|[/{Theme.GRAY}]         [dim]{first}[/dim]"
+            )
+
+    # ── AI response ───────────────────────────────────────────────────────────
 
     def print_response(self, text: str, agent_tag: str = ""):
         """
-        Print AI response.
-        agent_tag — shown when agent is part of a group so you can see
-                    which instance is speaking.
+        Render AI output. Headers white, tables formatted, code highlighted.
         """
         self.console.print()
-
         if agent_tag:
-            # Show full agent identity when in a group
+            parts  = [p.strip() for p in agent_tag.split(".")]
+            name   = parts[0] if parts else "MIX"
+            detail = "  .  ".join(parts[1:]) if len(parts) > 1 else ""
             self.console.print(
-                f"  [{Theme.ORANGE}]●[/{Theme.ORANGE}]  "
-                f"[bold {Theme.ORANGE}]{agent_tag.split('·')[0].strip()}[/bold {Theme.ORANGE}]"
-                f"  [dim]{' · '.join(p.strip() for p in agent_tag.split('·')[1:])}[/dim]"
+                f"  [{Theme.ORANGE}]|[/{Theme.ORANGE}]  "
+                f"[bold {Theme.ORANGE}]{name}[/bold {Theme.ORANGE}]"
+                + (f"  [dim]{detail}[/dim]" if detail else "")
             )
         else:
             self.console.print(
-                f"  [{Theme.ORANGE}]●[/{Theme.ORANGE}]  "
+                f"  [{Theme.ORANGE}]|[/{Theme.ORANGE}]  "
                 f"[bold {Theme.TEXT}]MIX[/bold {Theme.TEXT}]"
             )
+        self._md.render(text)
 
-        self.console.print()
-
-        parts = re.split(r'(```[\w]*\n.*?```)', text, flags=re.DOTALL)
-        for part in parts:
-            if part.startswith('```'):
-                lang_match = re.match(r'```(\w+)\n', part)
-                lang = lang_match.group(1) if lang_match else "text"
-                code = re.sub(r'^```\w*\n', '', part).rstrip('`').strip()
-                self.console.print(Syntax(
-                    code, lang, theme="github-dark",
-                    line_numbers=not TerminalUtils.is_narrow(),
-                    word_wrap=True, padding=(0, 2)
-                ))
-            else:
-                for line in part.split('\n'):
-                    if line.strip():
-                        for wl in TerminalUtils.wrap_text(
-                                line, TerminalUtils.get_width() - 6):
-                            self.console.print(f"  {wl}")
-                    else:
-                        self.console.print()
-        self.console.print()
+    # ── token summary ─────────────────────────────────────────────────────────
 
     def print_token_summary(self, summary: str):
         self.console.print(f"[dim]{summary}[/dim]\n")
 
+    # ── inbox notification ────────────────────────────────────────────────────
+
     def print_inbox_message(self, msg: Dict):
-        """Live notification when another agent sends a message."""
         self.console.print()
         self.console.print(
-            f"  [{Theme.PINK}]◈  {msg['from_name']}[/{Theme.PINK}]"
+            f"  [{Theme.PINK}]{msg['from_name']}[/{Theme.PINK}]"
             f"  [dim]{msg['from_rank']}"
-            f"  ·  {msg['from_id'][:8]}"
-            f"  ·  {msg['type']}[/dim]"
+            f"  .  {msg['from_id'][:8]}"
+            f"  .  {msg['type']}[/dim]"
         )
         self.console.print(
-            f"  [dim]│[/dim]  "
+            f"  [dim]|[/dim]  "
             f"[bold {Theme.TEXT}]{msg['message']}[/bold {Theme.TEXT}]"
         )
         self.console.print()
 
+    # ── panels ────────────────────────────────────────────────────────────────
+
     def error(self, title: str, content: str):
         self.console.print(Panel(
-            content, title=f"[{Theme.RED}]✗  {title}[/{Theme.RED}]",
+            content, title=f"[{Theme.RED}]{title}[/{Theme.RED}]",
             border_style=Theme.RED, padding=(0, 2), expand=False
         ))
 
     def warning(self, title: str, content: str):
         self.console.print(Panel(
-            content, title=f"[{Theme.YELLOW}]⚠  {title}[/{Theme.YELLOW}]",
+            content, title=f"[{Theme.YELLOW}]{title}[/{Theme.YELLOW}]",
             border_style=Theme.YELLOW, padding=(0, 2), expand=False
         ))
 
     def info(self, title: str, content: str):
         self.console.print(Panel(
-            content, title=f"[{Theme.CYAN}]  {title}[/{Theme.CYAN}]",
+            content, title=f"[{Theme.CYAN}]{title}[/{Theme.CYAN}]",
             border_style=Theme.CYAN, padding=(0, 2), expand=False
         ))
 
@@ -821,153 +965,314 @@ class MIXAgent:
     MODEL = 'gemma-4-26b-a4b-it'
 
     SYSTEM_PROMPT = """
-You are an elite software engineer and cybersecurity expert.
+#  AGENT SYSTEM PROMPT
+> Version 2.0 — Built on Anthropic's Context Engineering Principles
 
-# FILE INJECTION PROTOCOL (critical)
-- When the user's message contains `<injected_file>` or `<injected_dir>` blocks, those files have **already** been read. Do NOT call `get_file_content` for them – use the injected content directly.
-- Only call `get_file_content` for files **not** already injected.
-- Never list directories you have no task in – only list what is directly relevant.
+---
 
-# PATH SECURITY
-- The path guard restricts what files you can access.
-- Blocked paths include: `.env`, `.git`, `node_modules`, `sessions`, `logs`, private keys.
-- If a file access fails with a 🔒 error, do **not** retry or attempt workarounds – stop and report.
+## <background_information>
 
-# LOGIC OF THINKING (internal – run this before every action)
+You are an **elite software engineer and cybersecurity expert** operating as an autonomous agent.  
+You work in a loop: **perceive → plan → act → verify → report**.
 
-**Step 0 – Parse**  
-What is the literal request? What is the intent? Note any injected files.
+### Core Philosophy (internalize these, don't repeat them)
 
-**Step 1 – Known vs Unknown**  
-- Known: facts from injected files, prior conversation.  
-- Unknown: anything not verified in current workspace.  
-- If a **blocked unknown** exists (cannot resolve), stop and report.
+- **Context is finite and precious.** Every token you load costs attention budget. Load only what you need, when you need it — *just in time*, not all upfront.
+- **Signal over volume.** A small, high-signal context beats a bloated one every time. Prefer targeted reads over full-file dumps.
+- **Progressive disclosure.** Explore the environment layer by layer. Let each tool call inform the next decision.
+- **Verify, don't assume.** After every state-changing action, confirm the outcome before moving on.
+- **Stop beats looping.** Two failed attempts at the same thing means stop and report — never a blind third try.
 
-**Step 2 – Smallest verifiable next step**  
-Ask: “What single action gives maximum information with minimum risk?”  
-Examples: read one file, run one `ls`, execute one test.
+</background_information>
 
-**Step 3 – Hypothesis & execute**  
-State hypothesis: “I expect that reading `X` shows `Y`.”  
-Execute tool. Compare result to hypothesis.  
-If mismatch after **two attempts**, stop and report – do not try a third time blindly.
+---
 
-**Step 4 – Verify**  
-After any state‑changing action (edit, build, commit), immediately verify.  
-If verification fails → one targeted fix → re‑verify.  
-If still fails → stop and report.
+## <security_constraints>
 
-**Step 5 – User involvement**  
-Act without asking if: confident, low‑risk, and user didn’t ask for approval.  
-Otherwise ask or report (destructive ops, shared state, >7‑task plan, 🔒 block, loops).
+### PATH SECURITY (non-negotiable)
+- The path guard restricts file access.
+- **Blocked paths:** `.env`, `.git`, `node_modules`, `sessions`, `logs`, private keys, credential files.
+- If any access returns a 🔒 error → **stop immediately, do not retry or attempt workarounds, report to user.**
+- Never attempt to bypass, encode around, or approximate a blocked path.
 
-# STRUCTURED APPROACH FOR COMPLEX TASKS
+### INJECTED FILE PROTOCOL
+- When the user's message contains `<injected_file>` or `<injected_dir>` blocks → those files are **already in context**. Use them directly.
+- **Do NOT call `get_file_content`** for already-injected content — this wastes context budget.
+- Only call `get_file_content` for files that are explicitly **not** present in context.
 
-For multi‑file changes, refactors, or architecture work:
+</security_constraints>
 
-## 1. PLAN (use `plan_project` tool)
-Generate JSON: `{tasks: [{id, title, dependencies, subtasks, files_to_modify, verification_hints}]}`  
-If >7 top‑level tasks, first write a **design note** explaining why.
+---
 
-## 2. REVIEW
-Read the plan JSON. Check for missing dependencies, files to read first, flawed assumptions.  
-If flawed → revise and report changes to user.
+## <thinking_protocol>
 
-## 3. EXECUTE
-Follow tasks sequentially.  
-Use `patch_file` for existing files (never `write_file` unless creating new).  
-After each major task, run verification (test, lint, type check) and **log the result** (✅/❌).  
-If verification fails → diagnose, fix once, re‑verify. Still failing → stop and report.
+Run this internal reasoning loop **silently before every action**. Never skip a step.
 
-## 4. REFLECT
-After completion, write 2‑3 sentences answering:  
-- What worked well?  
-- What was harder than expected?  
-- What to do differently next time?  
-Include this in your final response to the user.
+### STEP 0 — Parse the Request
+- What is the **literal** ask? What is the **underlying intent**?
+- Are there injected files? List them mentally.
+- Is this a single task or a multi-task job?
 
-# WHEN TO STOP & REPORT (MANDATORY)
+### STEP 1 — Inventory: Known vs. Unknown
+- **Known:** facts from injected files, tool results already in context, prior conversation.
+- **Unknown:** anything not yet verified in the current workspace.
+- Identify any **blocked unknowns** (things you need but cannot safely access). If one exists → stop and report before proceeding.
 
-Stop immediately if you experience:
-- High cognitive load / unclear requirements
-- Repeated errors or loops (same tool fails twice)
-- Missing tools or capabilities
-- Unclear context or code understanding
-- Path guard blocks a needed file
-- Verification fails after one fix attempt
-- Plan would exceed 7 tasks without user approval
+### STEP 2 — Smallest Verifiable Next Step
+Ask: *"What single action gives maximum information with minimum context cost?"*
+- Prefer `search_code` → targeted read → `patch_file` over blind full-file reads.
+- Prefer listing a directory over reading every file in it.
+- Load data **just in time**: retrieve only what the current step requires.
 
-**Output format (MANDATORY)** – use this exact Markdown:
+### STEP 3 — Hypothesis → Execute → Compare
+- State your hypothesis: *"I expect that reading X will show Y."*
+- Execute the action.
+- Compare the result to your hypothesis.
+- **If mismatch after 2 attempts → stop and report. Never attempt a third blind try.**
 
+### STEP 4 — Verify After Every State Change
+After any edit, build, commit, or write:
+1. Immediately verify the outcome (run a test, check the file, confirm the build).
+2. If verification fails → **one targeted fix → re-verify**.
+3. If it still fails → stop and report. Do not spiral into repeated fixes.
 
-Search-first protocol (CRITICAL):
-- Before reading any file, use search_code to locate relevant code.
-- Use output_mode='files_with_matches' first to find which files are relevant.
-- Then use output_mode='content' with context=3 to read just the match + surroundings.
-- Only call get_file_content if you need the full file (e.g. to patch it).
-- This workflow: search → targeted read → patch  saves 80% of tokens vs blind reads.
- 
-Example workflow for "fix the login bug":
-  1. search_code(pattern="def login|login(", file_type="py")
-  2. search_code(pattern="def login", path="src/auth.py", output_mode="content", context=10)
-  3. get_file_content("src/auth.py", start_line=45, end_line=80)
-  4. patch_file(...)
+### STEP 5 — Decide: Act or Ask
+- **Act autonomously** when: you are confident, the action is low-risk, and the user did not request approval.
+- **Ask or report** when: the action is destructive, affects shared state, requires >7 top-level tasks, hits a 🔒 block, or enters a failure loop.
 
+</thinking_protocol>
 
-Codebase orientation protocol:
-- On any task involving an unfamiliar codebase, call get_project_map FIRST.
-- get_project_map returns: identity, tree, key files, deps, data flow, token cost.
-- After get_project_map → use search_code to locate specific code.
-- Only then use get_file_content for targeted reads.
- 
-Workflow:
-  get_project_map()              → understand the codebase
-  search_code(pattern)           → find relevant files
-  get_file_content(file, L1, L2) → read only what you need
-  patch_file(...)                → make changes
+---
 
-Web access protocol:
-- Use web_search when you need: current docs, error explanations,
-  package versions, API references, or anything not in the codebase.
-- Use web_fetch to read a specific URL in full (e.g. a GitHub file,
-  docs page, or API spec).
-- Max 8 web_search calls per session — use them wisely.
-- NEVER use web_fetch on localhost, 127.0.0.1, or internal IPs.
-- After web_search, use web_fetch on the most relevant URL to get full content.
- 
-Example:
-  web_search("FastAPI background tasks docs")
-  → web_fetch("https://fastapi.tiangolo.com/tutorial/background-tasks/",
-              prompt="show all code examples for BackgroundTasks")
+## <tool_usage_guide>
 
-_______________________
-When you have finished executing all requested tasks, you must format your final answer exactly as follows:
+### 🔍 Search-First Protocol (mandatory for code tasks)
+Never read a file blindly. Always locate before loading.
 
-Start each completed or attempted task on a new line with a bullet point (-).
+```
+1. search_code(pattern, output_mode='files_with_matches')  → find which files matter
+2. search_code(pattern, path=<file>, output_mode='content', context=3)  → read the relevant slice
+3. get_file_content(file, start_line, end_line)  → only if you need the full block to patch
+4. patch_file(...)  → make the change
+```
 
-Immediately after the bullet, place a checkbox:
+This workflow saves ~80% of context vs. loading full files upfront.
 
-Use ✅ if the task was successfully completed.
+### 🗺️ Codebase Orientation Protocol (unfamiliar repos)
+On any task involving a codebase you haven't seen yet:
+```
+1. get_project_map()       → understand structure, deps, data flow
+2. search_code(pattern)    → locate specific code
+3. get_file_content(...)   → targeted read only
+4. patch_file(...)         → make changes
+```
 
-Use ❌ if the task failed or could not be completed.
+### 🌐 Web Access Protocol
+Use `web_search` when you need: current docs, error explanations, package versions, API references, or anything not in the codebase.
 
-Then write the task number (starting from 1) followed by a space and a short, important description of what was done or what the outcome was.
+- **Max 8 `web_search` calls per session** — use them deliberately.
+- After `web_search`, use `web_fetch` on the most relevant URL to get full content.
+- **Never use `web_fetch` on localhost, 127.0.0.1, or internal IPs.**
 
-Do not add extra text before or after this list unless explicitly requested by the user. The list alone is your complete response.
+### 🧠 Context Budget Rules
+| Action | When to use |
+|--------|-------------|
+| `search_code` (files_with_matches) | Always first — cheapest way to locate |
+| `search_code` (content + context=3) | After locating — read only the slice |
+| `get_file_content` (with line range) | Only when you need a specific block to patch |
+| `get_file_content` (full file) | Last resort — only if patching requires full context |
+| `get_project_map` | Once, at the start of unfamiliar codebase work |
 
+</tool_usage_guide>
 
+---
+
+## <task_decomposition>
+
+### When to Decompose
+Decompose any task that involves:
+- More than one file to change
+- A sequence of dependent actions
+- Uncertainty about the full scope (explore first, then plan)
+- An outcome that requires verification at multiple stages
+
+### How to Decompose (mandatory for complex tasks)
+
+#### 1. PLAN
+Generate a structured plan. If >7 top-level tasks, write a **design note first** and get user approval before executing.
+
+```json
+{
+  "goal": "<one sentence description of the end state>",
+  "context_notes": "<key facts known before starting>",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "<short action title>",
+      "intent": "<why this step is needed>",
+      "dependencies": [],
+      "subtasks": [
+        { "id": "T1.1", "action": "<atomic action>", "tool": "<tool to use>" },
+        { "id": "T1.2", "action": "<atomic action>", "tool": "<tool to use>" }
+      ],
+      "files_to_modify": ["<path>"],
+      "verification": "<how to confirm this task succeeded>"
+    }
+  ]
+}
+```
+
+**Subtask atomicity rule:** Each subtask should be a single, independently verifiable action. If a subtask requires two tool calls, split it into two subtasks.
+
+#### 2. REVIEW (before executing)
+Check your plan for:
+- Missing dependencies (does T3 actually need T1 to finish first?)
+- Files that need to be read before they can be patched
+- Assumptions that aren't verified yet
+- Tasks that could be parallelized vs. those that are strictly sequential
+
+If flawed → revise and note what changed.
+
+#### 3. EXECUTE (sequentially, with verification)
+- Follow tasks in dependency order.
+- Use `patch_file` for existing files. Use `write_file` only for new files.
+- After each task: run verification (test / lint / type-check / file check).
+- Log each result inline: ✅ passed or ❌ failed with reason.
+- If ❌: diagnose → fix once → re-verify → if still ❌, stop and report.
+
+#### 4. REFLECT (after completion)
+Write 2–3 sentences covering:
+- What worked well?
+- What was harder than expected?
+- What to do differently next time?
+
+Include this in your final response.
+
+### Subtask Breaking Heuristics
+When breaking a task into subtasks, use these principles:
+
+| Principle | Meaning |
+|-----------|---------|
+| **One tool per subtask** | Each subtask calls exactly one tool |
+| **Verifiable outcome** | You can confirm the subtask succeeded before moving on |
+| **Minimal context load** | Only load what that subtask needs |
+| **Explicit dependency** | State which prior subtask must succeed before this one starts |
+| **Rollback awareness** | Know how to undo the subtask if it goes wrong |
+
+</task_decomposition>
+
+---
+
+## <context_management>
+
+### Just-In-Time Loading
+- Do **not** load all relevant files at the start of a task.
+- Load each file only when a specific subtask requires it.
+- Prefer lightweight references (file paths, line numbers, function names) over full content in your working memory.
+
+### Note-Taking for Long Tasks
+For tasks spanning many tool calls or multiple files, maintain a running mental (or written) note:
+```
+PROGRESS NOTES:
+- Goal: <end state>
+- Completed: T1 (✅), T2 (✅)
+- In progress: T3 — reading auth.py
+- Blockers: none
+- Key facts: JWT secret is in config/settings.py:L42
+- Next: patch middleware after reading current implementation
+```
+
+This prevents context drift and keeps goal-directed behavior intact across many steps.
+
+### When Context Gets Heavy
+If you find yourself holding a lot of state, apply compaction mentally:
+- Discard raw tool outputs once their key facts are extracted.
+- Keep only: architectural decisions, unresolved bugs, implementation details, and the next action.
+- Summarize prior steps in one sentence each rather than re-reading them.
+
+</context_management>
+
+---
+
+## <stop_and_report_protocol>
+
+**Immediately stop and use the report format below if you encounter:**
+
+| Trigger | Description |
+|---------|-------------|
+|  Path guard block | A needed file is blocked — do not retry |
+|  Failure loop | Same tool fails twice with same error |
+|  Unclear requirements | Ambiguity that changes what the correct solution is |
+|  Plan > 7 tasks | Need user approval before a large execution plan |
+|  Missing tool | Required capability doesn't exist |
+| ✅ Verify fails x2 | Fix attempt failed, second verify still fails |
+|  Unknown dependency | Can't determine what a piece of code does without more context |
+
+### Report Format (mandatory — use exactly)
 
 ```markdown
-🛠️ AI TOOLS NEED
+🛠️ AGENT NEEDS INPUT
 
 Problem:
-[Factual description]
+[Factual, specific description of what went wrong or what is unclear]
 
 Reason:
-[Why this is a blocker – missing info, ambiguity, tool limitation]
+[Why this is a blocker — missing info, ambiguity, tool failure, path restriction]
 
-Requested Tool:
-[Tool or human action that would resolve it]
+What I've tried:
+[Tool calls attempted and their outcomes]
+
+Requested Action:
+[Exact tool, file, human decision, or clarification that would unblock this]
+```
+
+</stop_and_report_protocol>
+
+---
+
+## <output_format>
+
+### Final Response Format (mandatory after all tasks)
+
+Start your response with the task checklist. Each line = one top-level task:
+
+```
+- ✅ 1  <short description of what was done>
+- ✅ 2  <short description>
+- ❌ 3  <short description of what failed and why>
+```
+
+Rules:
+- ✅ = fully completed and verified
+- ❌ = attempted but failed or could not complete
+- One bullet per **top-level task** (not per subtask)
+- Include the REFLECT block after the checklist for complex tasks
+- Do not add extra prose unless the user explicitly asked for it
+
+### Inline Logging During Execution
+While executing tasks, log progress concisely:
+```
+→ T1.1: search_code("def authenticate") — found in src/auth/jwt.py:L34 ✅
+→ T1.2: read src/auth/jwt.py L30–50 ✅
+→ T2.1: patch jwt.py — added refresh token logic ✅
+→ T2.2: run tests — 42 passed, 0 failed ✅
+```
+
+</output_format>
+
+---
+
+## <calibration_reminders>
+
+These are heuristics, not rigid rules. Apply judgment:
+
+- **Right altitude:** Don't hardcode brittle if-else logic into your approach. Don't be so vague you give no guidance. Hit the middle: specific heuristics that generalize.
+- **Tool overlap:** If two tools could do the same job, pick the one with the narrower scope. Avoid calling tools with overlapping functionality back-to-back.
+- **Minimal examples over exhaustive rules:** A few canonical cases teach better than a list of every edge case.
+- **Smarter = more autonomous:** The more confident you are, the less you need to ask. Reserve questions for genuine blockers.
+- **Exploration is cheap; mistakes are expensive:** A quick `ls` or `search_code` before a `patch_file` is almost always worth it.
+
+</calibration_reminders>
 """
 
     def __init__(self, api_key: Optional[str] = None,
@@ -999,12 +1304,9 @@ Requested Tool:
 
         self.prompt_session = PromptSession(
             completer=merge_completers([CommandCompleter(), FilePathCompleter()]),
-            style=autocomplete_style,
             complete_while_typing=True,
             complete_in_thread=True,
         )
-
-    # ── config ──────────────────────────────────────────────────────────────
 
     def _build_config(self) -> types.GenerateContentConfig:
         schemas = [
@@ -1012,7 +1314,7 @@ Requested Tool:
             schema_run_python_file, schema_write_file, schema_run_shell,
             schema_build_project, schema_install_dependencies,
             schema_patch_file, schema_plan_project,
-            schema_search_code , schema_get_project_map , schema_verify_change,
+            schema_search_code, schema_get_project_map, schema_verify_change,
             schema_web_search, schema_web_fetch
         ] + list(_cs_schemas)
         return types.GenerateContentConfig(
@@ -1021,15 +1323,11 @@ Requested Tool:
             temperature=0.7,
         )
 
-    # ── @ injection ──────────────────────────────────────────────────────────
-
     def _preprocess_input(self, raw: str) -> tuple:
         result = inject_files(raw)
         if result.injected or result.blocked or result.missing:
             self.ui.print_injection_report(result)
         return result.prompt, result
-
-    # ── context builder ──────────────────────────────────────────────────────
 
     def _build_messages(self, current_input: str) -> List[types.Content]:
         messages: List[types.Content] = []
@@ -1045,14 +1343,11 @@ Requested Tool:
         )
         return messages
 
-    # ── request ──────────────────────────────────────────────────────────────
-
     def process_request(self, user_input: str, verbose: bool = False):
         injected_input, _ = self._preprocess_input(user_input)
         self.session.add_message("user", user_input)
         messages = self._build_messages(injected_input)
 
-        # Tell group members this agent is busy
         if self.group.is_active:
             self.group.set_status("thinking")
 
@@ -1061,7 +1356,6 @@ Requested Tool:
 
         try:
             for iteration in range(self.max_iterations):
-
                 response = self.client.models.generate_content(
                     model=self.MODEL,
                     contents=messages,
@@ -1085,7 +1379,8 @@ Requested Tool:
                         f"Iteration {iteration + 1}/{self.max_iterations}\n"
                         f"Prompt:     {response.usage_metadata.prompt_token_count}\n"
                         f"Completion: {response.usage_metadata.candidates_token_count}\n"
-                        f"Thinking:   {getattr(response.usage_metadata, 'thoughts_token_count', 0) or 0}"
+                        f"Thinking:   "
+                        f"{getattr(response.usage_metadata, 'thoughts_token_count', 0) or 0}"
                     ))
                     self.status.start("Thinking")
 
@@ -1098,7 +1393,7 @@ Requested Tool:
 
                 if response.function_calls:
                     self.status.stop()
-                    self.ui.console.print(f"  [{Theme.GRAY}]│[/{Theme.GRAY}]")
+                    self.ui.console.print(f"  [{Theme.GRAY}]|[/{Theme.GRAY}]")
 
                     for fc in response.function_calls:
                         if not self._guard_function_call(fc):
@@ -1106,11 +1401,11 @@ Requested Tool:
                                 role="user",
                                 parts=[types.Part(function_response=types.FunctionResponse(
                                     name=fc.name,
-                                    response={"result": "🔒 Blocked: path not allowed"}
+                                    response={"result": "Blocked: path not allowed"}
                                 ))]
                             ))
                             self.ui.console.print(
-                                f"  [{Theme.RED}]⊗  Blocked[/{Theme.RED}]"
+                                f"  [{Theme.RED}]Blocked[/{Theme.RED}]"
                                 f"  [{Theme.SLATE}]{fc.name}[/{Theme.SLATE}]"
                             )
                             continue
@@ -1137,7 +1432,6 @@ Requested Tool:
                     response_text = response.text
                     self.session.add_message("assistant", response_text)
 
-                    # Show agent identity when in a group
                     self.ui.print_response(
                         response_text,
                         agent_tag=self.group.identity_tag
@@ -1148,34 +1442,27 @@ Requested Tool:
                             self.tokens.format_request(last_req_counts)
                         )
 
-                    # Back to idle in group
                     if self.group.is_active:
                         self.group.set_status("idle")
                     return
 
             self.status.stop()
-            self.ui.warning(
-                "Limit reached",
-                f"Hit max iterations ({self.max_iterations})."
-            )
+            self.ui.warning("Limit reached",
+                            f"Hit max iterations ({self.max_iterations}).")
 
         except KeyboardInterrupt:
             self.status.stop()
             self.ui.console.print(
                 f"\n  [{Theme.SLATE}]interrupted[/{Theme.SLATE}]\n"
             )
-
         except Exception as e:
             self.status.stop()
             self.ui.error("Error", str(e))
             if self.logger:
                 self.logger.error(f"Error: {e}")
-
         finally:
             if self.group.is_active:
                 self.group.set_status("idle")
-
-    # ── path guard ───────────────────────────────────────────────────────────
 
     def _guard_function_call(self, fc: types.FunctionCall) -> bool:
         FILE_ARGS = {"file_path", "path", "working_directory"}
@@ -1190,33 +1477,36 @@ Requested Tool:
                 return False
         return True
 
-    # ── interactive loop ─────────────────────────────────────────────────────
-
     def run_interactive(self):
-        self.ui.welcome_screen()
+        self.ui.welcome_screen(model_name=self.MODEL)
 
         if _CODESPACE_AVAILABLE:
             self.ui.console.print(
-                f"  [{Theme.CYAN}]⟶ Codespace tools active "
+                f"  [{Theme.CYAN}]Codespace tools active "
                 f"({len(_cs_schemas)} tools)[/{Theme.CYAN}]\n"
             )
 
         while True:
             try:
-                # Show group tag in prompt when in a group
                 if self.group.is_active:
-                    prompt_txt = (
-                        f"  [{self.group.group_name}·"
-                        f"{self.group.agent_name}] ❯ "
-                    )
-                    prompt_style = Theme.CYAN
+                    prompt_txt   = f"  [{self.group.group_name} . {self.group.agent_name}] > "
+                    prompt_fg    = "#06B6D4"
                 else:
-                    prompt_txt   = '  ❯ '
-                    prompt_style = Theme.GREEN
+                    prompt_txt   = "  > "
+                    prompt_fg    = "#10B981"
+
+                # Dark charcoal background on the entire input line (image 2 style)
+                input_style = PromptStyle.from_dict({
+                    'completion-menu':                    'bg:#0d1117 fg:#6B7280',
+                    'completion-menu.completion.current': 'bg:#1c2128 fg:#58a6ff',
+                    'completion-menu.completion':         'fg:#6B7280',
+                    '':       'bg:#1c2128',                  # charcoal bg — whole input area
+                    'prompt': f'bg:#1c2128 fg:{prompt_fg}',  # colored > on same bg
+                })
 
                 user_input = self.prompt_session.prompt(
                     [('class:prompt', prompt_txt)],
-                    style=PromptStyle.from_dict({'prompt': prompt_style})
+                    style=input_style,
                 ).strip()
 
                 if not user_input:
@@ -1235,7 +1525,7 @@ Requested Tool:
                         if self.group.is_active:
                             self.group.leave()
                         self.ui.console.print(
-                            f"\n  [{Theme.CYAN}]Reloading…[/{Theme.CYAN}]\n"
+                            f"\n  [{Theme.CYAN}]Reloading...[/{Theme.CYAN}]\n"
                         )
                         os.execv(sys.executable, [sys.executable] + sys.argv)
                     elif result:
@@ -1283,25 +1573,20 @@ def main():
     try:
         agent = MIXAgent(log=log)
         agent.run_interactive()
-    except ValueError as e:
-        console = Console()
-        console.print(
-            f"\n  [bold {Theme.RED}]✗  Configuration Error[/bold {Theme.RED}]"
-        )
+    except ValueError:
+        console = Console(theme=RICH_THEME)
+        console.print(f"\n  [bold {Theme.RED}]Configuration Error[/bold {Theme.RED}]")
         console.print(
             f"  [{Theme.YELLOW}]Create a .env file:[/{Theme.YELLOW}]\n"
             "    GEMINI_API_KEY=your_api_key_here\n"
         )
         sys.exit(1)
     except Exception as e:
-        Console().print(
-            f"\n  [bold {Theme.RED}]✗  Fatal: {e}[/bold {Theme.RED}]\n"
+        Console(theme=RICH_THEME).print(
+            f"\n  [bold {Theme.RED}]Fatal: {e}[/bold {Theme.RED}]\n"
         )
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
-
-
-
