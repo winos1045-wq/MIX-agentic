@@ -2,6 +2,8 @@
 This is Beta version Development Agent : Advancing 18.7 %
 
 
+
+
 # MIX Agent
 
 An autonomous agentic AI built on Google Gemini, designed for software engineering and cybersecurity tasks. Runs entirely in the terminal with a rich interactive interface, tool execution loop, file injection, and multi-agent coordination.
@@ -24,6 +26,10 @@ An autonomous agentic AI built on Google Gemini, designed for software engineeri
 - [Token Tracking](#token-tracking)
 
 ---
+## layers
+<img width="1440" height="1312" alt="image" src="https://github.com/user-attachments/assets/b8176fe7-5a33-4ac0-88de-a89675f4212a" />
+
+
 
 ## Requirements
 
