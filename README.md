@@ -111,19 +111,8 @@ The welcome screen shows the current model, working directory, and available fea
 
 ## Interface Overview
 
-```
-+-------------------------------------------------+
-|  MIX Agent                                      |
-|  |                                              |
-|  +-- /help for commands  .  @file to inject     |
-|      /agent (beta) link agents                  |
-|                                                 |
-|  gemma-4-26b-a4b-it  .  MIX                    |
-|  /your/working/directory                        |
-+-------------------------------------------------+
+<img width="1539" height="826" alt="image" src="https://github.com/user-attachments/assets/02eb012b-bddd-4c96-b3e2-4b193ea9ebc0" />
 
-  > _
-```
 
 The prompt turns cyan when inside an agent group session.
 
