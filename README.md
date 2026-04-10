@@ -358,4 +358,5 @@ mix-agent/
 
 Built by **Mohamed FAAFAA**
 
+تحيا sience 
 Model: `gemma-4-26b-a4b-it` via Google Gemini API
