@@ -356,7 +356,8 @@ mix-agent/
 
 ## Developer
 
-Built by **Mohamed FAAFAA**
-
-تحيا sience 
+Built by **Mohamed FAAFAA**  
 Model: `gemma-4-26b-a4b-it` via Google Gemini API
+
+
+## تحيا الـــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــعلوم الطبيعية 
