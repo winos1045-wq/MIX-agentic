@@ -1,3 +1,4 @@
+#latest
 """
 patch_file.py  —  SDX Agent  (upgraded)
 
@@ -30,7 +31,7 @@ from rich.text import Text
 
 console = Console()
 
-CONTEXT_LINES = 3
+CONTEXT_LINES = 2
 
 
 # ── Encoding helpers ──────────────────────────────────────────────────────────
@@ -74,20 +75,11 @@ def _write_file(path: str, content: str, encoding: str, bom: bytes) -> None:
 # ── Diff display ──────────────────────────────────────────────────────────────
 
 def show_diff(file_path: str, old_content: str, new_content: str) -> None:
-    """
-    Display a clean unified diff with correct old AND new line numbers.
-
-    Uses get_grouped_opcodes() which tracks both old-file and new-file
-    positions simultaneously, fixing the "line 40 shown over line 36" bug
-    that occurred when insertions/deletions shifted the line count.
-
-    Format per line:
-        OLD:NEW│ [-/+/ ] content
-    """
+    """Display a clean sequential diff in the style of the original agent UI."""
     old_lines = old_content.splitlines()
     new_lines = new_content.splitlines()
 
-    matcher = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    matcher = SequenceMatcher(None, old_lines, new_lines)
     opcodes  = matcher.get_opcodes()
 
     additions = sum(j2 - j1 for tag, i1, i2, j1, j2 in opcodes if tag in ('insert',  'replace'))
@@ -96,71 +88,94 @@ def show_diff(file_path: str, old_content: str, new_content: str) -> None:
     if additions == 0 and removals == 0:
         return
 
-    out: list[Text] = []
+    output_lines: list[Text] = []
 
-    # Header
-    hdr = Text()
-    hdr.append("● ", style="bold green")
-    hdr.append("Update ", style="bold white")
-    hdr.append(f"[{file_path}]", style="white")
-    out.append(hdr)
+    # ── Header ────────────────────────────────────────────────────────────────
+    header = Text()
+    header.append("● ", style="bold green")
+    header.append("Update", style="bold white")
+    header.append(f" [{file_path}]", style="white")
+    output_lines.append(header)
 
-    # Summary
-    summ = Text()
-    summ.append(" └── ", style="dim")
-    summ.append(f"+{additions}", style="bold green")
-    summ.append(" / ", style="dim")
-    summ.append(f"-{removals}", style="bold red")
-    summ.append(f"  {file_path}", style="dim")
-    out.append(summ)
-    out.append(Text())
+    # ── Summary ───────────────────────────────────────────────────────────────
+    summary = Text()
+    summary.append(" │\n", style="bold white")
+    summary.append(" └── Updated ", style="italic white")
+    summary.append(file_path, style="italic bold white")
+    summary.append(" with ", style="italic white")
+    summary.append(f"{additions}", style="italic bold green")
+    summary.append(f" addition{'s' if additions != 1 else ''}", style="italic green")
+    summary.append(" and ", style="italic white")
+    summary.append(f"{removals}", style="italic bold red")
+    summary.append(f" removal{'s' if removals != 1 else ''}", style="italic red")
+    output_lines.append(summary)
+    output_lines.append(Text())  # blank line
 
-    # Grouped hunks — each group already has context_lines baked in
-    groups = list(matcher.get_grouped_opcodes(CONTEXT_LINES))
+    # ── Diff body ─────────────────────────────────────────────────────────────
+    displayed_old: set[int] = set()
+    prev_old_end  = -1
 
-    for group in groups:
-        # Hunk header: use 1-indexed starts of first block in group
-        oi_start = group[0][1] + 1   # old file first line
-        ni_start = group[0][3] + 1   # new file first line
+    for tag, i1, i2, j1, j2 in opcodes:
+        if tag == 'equal':
+            continue
 
-        hunk_hdr = Text()
-        hunk_hdr.append(f"  @@ -{oi_start} +{ni_start} @@", style="cyan dim")
-        out.append(hunk_hdr)
+        # Gap indicator between hunks
+        if prev_old_end >= 0 and i1 > prev_old_end + CONTEXT_LINES * 2:
+            output_lines.append(Text("    ...", style="dim"))
 
-        for tag, i1, i2, j1, j2 in group:
+        # Context before (from old file)
+        for i in range(max(0, i1 - CONTEXT_LINES), i1):
+            if i not in displayed_old:
+                t = Text()
+                t.append(f"{i + 1:4d}", style="dim")
+                t.append("   ", style="")
+                t.append(old_lines[i] if i < len(old_lines) else "", style="dim")
+                output_lines.append(t)
+                displayed_old.add(i)
 
-            if tag == 'equal':
-                for k in range(i2 - i1):
-                    old_ln = i1 + k + 1
-                    new_ln = j1 + k + 1
+        # Deletions  (old line numbers, red-on-dark-red)
+        if tag in ('delete', 'replace'):
+            for i in range(i1, i2):
+                t = Text()
+                t.append(f"{i + 1:4d}", style="dim")
+                t.append(" - ", style="bold red")
+                t.append(old_lines[i] if i < len(old_lines) else "", style="red on rgb(64,0,0)")
+                output_lines.append(t)
+                displayed_old.add(i)
+
+        # Insertions (new line numbers, green-on-dark-green)
+        if tag in ('insert', 'replace'):
+            for j in range(j1, j2):
+                t = Text()
+                t.append(f"{j + 1:4d}", style="dim")
+                t.append(" + ", style="bold green")
+                t.append(new_lines[j] if j < len(new_lines) else "", style="green on rgb(0,64,0)")
+                output_lines.append(t)
+
+        # Context after
+        if i2 < len(old_lines):
+            for i in range(i2, min(len(old_lines), i2 + CONTEXT_LINES)):
+                if i not in displayed_old:
                     t = Text()
-                    t.append(f"{old_ln:>5}:{new_ln:<5} ", style="dim")
-                    t.append("  ", style="")
-                    t.append(old_lines[i1 + k] if (i1 + k) < len(old_lines) else "", style="dim")
-                    out.append(t)
+                    t.append(f"{i + 1:4d}", style="dim")
+                    t.append("   ", style="")
+                    t.append(old_lines[i] if i < len(old_lines) else "", style="dim")
+                    output_lines.append(t)
+                    displayed_old.add(i)
+        else:
+            for j in range(j2, min(len(new_lines), j2 + CONTEXT_LINES)):
+                t = Text()
+                t.append(f"{j + 1:4d}", style="dim")
+                t.append("   ", style="")
+                t.append(new_lines[j] if j < len(new_lines) else "", style="dim")
+                output_lines.append(t)
 
-            if tag in ('delete', 'replace'):
-                for i in range(i1, i2):
-                    old_ln = i + 1
-                    t = Text()
-                    t.append(f"{old_ln:>5}:{'':5} ", style="dim")
-                    t.append("- ", style="bold red")
-                    t.append(old_lines[i] if i < len(old_lines) else "", style="red")
-                    out.append(t)
+        prev_old_end = i2
 
-            if tag in ('insert', 'replace'):
-                for j in range(j1, j2):
-                    new_ln = j + 1
-                    t = Text()
-                    t.append(f"{'':5}:{new_ln:<5} ", style="dim")
-                    t.append("+ ", style="bold green")
-                    t.append(new_lines[j] if j < len(new_lines) else "", style="green")
-                    out.append(t)
+    output_lines.append(Text())  # trailing blank
 
-        out.append(Text())   # blank line between hunks
-
-    console.print()
-    for line in out:
+    console.print("\n")
+    for line in output_lines:
         console.print(line)
 
 
