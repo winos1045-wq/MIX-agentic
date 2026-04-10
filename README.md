@@ -111,7 +111,7 @@ The welcome screen shows the current model, working directory, and available fea
 
 ## Interface Overview
 
-<img width="1383" height="744" alt="image" src="https://github.com/user-attachments/assets/0f98edbe-d61a-4205-a75b-fc0a6705e21c" />
+<img width="1368" height="710" alt="image" src="https://github.com/user-attachments/assets/9628dd77-d0c8-4528-b7f2-65d22eda8496" />
 
 
 The prompt turns cyan when inside an agent group session.
