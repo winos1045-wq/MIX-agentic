@@ -48,7 +48,7 @@ An autonomous agentic AI built on Google Gemini, designed for software engineeri
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/yourname/mix-agent.git
+git clone https://github.com/winos1045-wq/MIX-agentic.git
 cd mix-agent
 ```
 
