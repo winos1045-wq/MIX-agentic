@@ -49,7 +49,7 @@ An autonomous agentic AI built on Google Gemini, designed for software engineeri
 
 ```bash
 git clone https://github.com/winos1045-wq/MIX-agentic.git
-cd mix-agent
+cd mix-agent/llm
 ```
 
 **2. Create and activate a virtual environment**
