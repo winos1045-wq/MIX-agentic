@@ -1,12 +1,11 @@
 """
-Function Call Router — with PathGuard on every file operation.
+Function Call Router — with PathGuard + Recording hooks on every tool call.
 """
 
 import os
+import time
 from google.genai import types
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 from path_guard import guard, GuardError
 
@@ -45,7 +44,6 @@ def _get_teams_instance():
 # ── Guard helpers ─────────────────────────────────────────────────────────────
 
 def _safe_path(raw: str, write: bool = False) -> str:
-    """Resolve path through PathGuard. Returns str path or raises GuardError."""
     return str(guard.resolve(raw, write=write))
 
 
@@ -68,14 +66,26 @@ def _guard_error_result(fn_name: str, raw_path: str, err: GuardError) -> types.C
 # ============================================================================
 
 def call_function(function_call: types.FunctionCall, verbose: bool = False) -> types.Content:
-    function_name = function_call.name
-    args          = function_call.args
+    function_name     = function_call.name
+    args              = function_call.args
     working_directory = os.getcwd()
 
+    # ── Recording hook: START ─────────────────────────────────────────────────
+    # Fires before every tool, regardless of which tool it is.
+    # If no recording session is active, hook_tool_call returns None (no-op).
+    _t0 = time.perf_counter()
+    _call_index = None
+    try:
+        from func.sys_agent_recording import hook_tool_call
+        _call_index = hook_tool_call(function_name, args)
+    except ImportError:
+        pass  # recording module not installed — silently skip
+
+    # ── Main dispatch ─────────────────────────────────────────────────────────
     result = ""
     try:
 
-        # ── Memory functions ─────────────────────────────────────────────────
+        # ── Memory functions ──────────────────────────────────────────────────
         if function_name == "memory_add_pattern":
             from func.mem_integration import memory_add_pattern
             result = memory_add_pattern(
@@ -157,7 +167,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
             from func.mem_integration import memory_cleanup
             result = memory_cleanup(working_directory=working_directory)
 
-        # ── Build functions ──────────────────────────────────────────────────
+        # ── Build functions ───────────────────────────────────────────────────
         elif function_name == "build_project":
             from func.build import build_project
             result = build_project(
@@ -179,15 +189,13 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 show_live=True
             )
 
-        # ── File operations (all guarded) ────────────────────────────────────
-
+        # ── File operations (all guarded) ─────────────────────────────────────
         elif function_name == "patch_file":
             raw = args.get("file_path", "")
             try:
                 _safe_path(raw, write=True)
             except GuardError as e:
                 return _guard_error_result(function_name, raw, e)
-
             from func.patch_file import patch_file
             result = patch_file(
                 working_directory,
@@ -202,7 +210,6 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 _safe_path(raw)
             except GuardError as e:
                 return _guard_error_result(function_name, raw, e)
-
             from func.get_file_content import get_file_content
             result = get_file_content(
                 working_directory,
@@ -217,7 +224,6 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 _safe_path(raw, write=True)
             except GuardError as e:
                 return _guard_error_result(function_name, raw, e)
-
             from func.write_file import write_file
             result = write_file(
                 working_directory,
@@ -227,12 +233,10 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
 
         elif function_name == "get_files_info":
             raw = args.get("path", ".")
-            # For directory listings, we only block clearly sensitive paths
             try:
                 _safe_path(raw)
             except GuardError as e:
                 return _guard_error_result(function_name, raw, e)
-
             from func.get_files_info import get_files_info
             result = get_files_info(
                 working_directory,
@@ -246,7 +250,6 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 _safe_path(raw)
             except GuardError as e:
                 return _guard_error_result(function_name, raw, e)
-
             from func.run_python_file import run_python_file
             result = run_python_file(
                 working_directory,
@@ -262,7 +265,111 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 timeout=args.get("timeout", 30)
             )
 
-        # ── Task execution ───────────────────────────────────────────────────
+        # ── remember_fact ─────────────────────────────────────────────────────
+        elif function_name == "remember_fact":
+            from func.remember_fact import remember_fact
+            result = remember_fact(
+                working_directory=working_directory,
+                key=args.get("key", ""),
+                value=args.get("value", ""),
+                category=args.get("category", "fact"),
+                confidence=float(args.get("confidence", 1.0)),
+                source=args.get("source", "agent"),
+                tags=args.get("tags", []),
+            )
+
+        elif function_name == "recall_fact":
+            from func.remember_fact import recall_fact
+            result = recall_fact(
+                working_directory=working_directory,
+                query=args.get("query", ""),
+                category=args.get("category", "all"),
+                limit=int(args.get("limit", 20)),
+                semantic=bool(args.get("semantic", False)),
+            )
+
+        elif function_name == "forget_fact":
+            from func.remember_fact import forget_fact
+            result = forget_fact(
+                working_directory=working_directory,
+                key=args.get("key", ""),
+            )
+
+        elif function_name == "list_facts":
+            from func.remember_fact import list_facts
+            result = list_facts(
+                working_directory=working_directory,
+                group_by_category=bool(args.get("group_by_category", True)),
+                category=args.get("category", "all"),
+            )
+
+        # ── benchmark_solution ────────────────────────────────────────────────
+        elif function_name == "benchmark_solution":
+            from func.benchmark_solution import benchmark_solution
+            result = benchmark_solution(
+                working_directory=working_directory,
+                task_id=args.get("task_id", "default"),
+                target=args.get("target", ""),
+                target_type=args.get("target_type", "python_file"),
+                args=args.get("args", []),
+                iterations=int(args.get("iterations", 10)),
+                warmup_runs=int(args.get("warmup_runs", 2)),
+                timeout_seconds=int(args.get("timeout_seconds", 30)),
+                thresholds=args.get("thresholds", {}),
+                compare_baseline=bool(args.get("compare_baseline", True)),
+                save_as_baseline=bool(args.get("save_as_baseline", False)),
+                http_method=args.get("http_method", "GET"),
+                http_body=args.get("http_body"),
+            )
+
+        # ── task_decomposer ───────────────────────────────────────────────────
+        elif function_name == "task_decomposer":
+            from func.task_decomposer import task_decomposer
+            result = task_decomposer(
+                working_directory=working_directory,
+                task_description=args.get("task_description", ""),
+                context=args.get("context", {}),
+                strategy=args.get("strategy", "dag"),
+                depth_level=int(args.get("depth_level", 3)),
+                save_plan=bool(args.get("save_plan", True)),
+            )
+
+        # ── sys_agent_recording ───────────────────────────────────────────────
+        elif function_name == "recording_start":
+            from func.sys_agent_recording import recording_start
+            result = recording_start(
+                working_directory=working_directory,
+                session_id=args.get("session_id"),
+                task_description=args.get("task_description", ""),
+                metadata=args.get("metadata", {}),
+            )
+
+        elif function_name == "recording_stop":
+            from func.sys_agent_recording import recording_stop
+            result = recording_stop(
+                working_directory=working_directory,
+                session_id=args.get("session_id"),
+                outcome=args.get("outcome", "success"),
+                notes=args.get("notes", ""),
+            )
+
+        elif function_name == "recording_snapshot":
+            from func.sys_agent_recording import recording_snapshot
+            result = recording_snapshot(
+                working_directory=working_directory,
+                label=args.get("label", "checkpoint"),
+                notes=args.get("notes", ""),
+            )
+
+        elif function_name == "recording_analyze":
+            from func.sys_agent_recording import recording_analyze
+            result = recording_analyze(
+                working_directory=working_directory,
+                session_id=args.get("session_id"),
+                focus=args.get("focus", "full"),
+            )
+
+        # ── execute_task ──────────────────────────────────────────────────────
         elif function_name == "execute_task":
             from func.task_executor import execute_task
             result = execute_task(
@@ -272,7 +379,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 plan_file=args.get("plan_file")
             )
 
-        # ── Team agent ───────────────────────────────────────────────────────
+        # ── team_agent ────────────────────────────────────────────────────────
         elif function_name == "team_agent":
             teams   = _get_teams_instance()
             command = args.get("command", "").strip()
@@ -281,7 +388,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
             response = teams.handle(command)
             result = response or "Team command executed."
 
-        # ── Planning ─────────────────────────────────────────────────────────
+        # ── plan_project ──────────────────────────────────────────────────────
         elif function_name == "plan_project":
             from func.plan_project import plan_project
             result = plan_project(
@@ -295,7 +402,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 show_live=True
             )
 
-                # ── Web Fetch / Search ───────────────────────────────────────────────
+        # ── web search / fetch ────────────────────────────────────────────────
         elif function_name == "web_search":
             from func.web_fetch_search import web_search
             result = web_search(
@@ -305,7 +412,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 blocked_domains=args.get("blocked_domains"),
                 max_results=int(args.get("max_results", 5)),
             )
- 
+
         elif function_name == "web_fetch":
             from func.web_fetch_search import web_fetch
             result = web_fetch(
@@ -315,6 +422,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 max_chars=int(args.get("max_chars", 8000)),
             )
 
+        # ── search_code (grep) ────────────────────────────────────────────────
         elif function_name == "search_code":
             from func.grep_tool import search_code
             result = search_code(
@@ -334,7 +442,7 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 offset=int(args.get("offset", 0)),
             )
 
-        # ── Project Architecture Mapping ─────────────────────────────────────
+        # ── get_project_map ───────────────────────────────────────────────────
         elif function_name == "get_project_map":
             from func.project_map import get_project_map
             result = get_project_map(
@@ -346,19 +454,19 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                 focus=args.get("focus"),
             )
 
-        # ── Verification Loop (lint/test/build) ──────────────────────────────
+        # ── verify_change ─────────────────────────────────────────────────────
         elif function_name == "verify_change":
             from func.verify_change import verify_change
             result = verify_change(
                 working_directory,
                 scope=args.get("scope", "lint"),
             )
-        # ── Codespace tools (guarded) ────────────────────────────────────────
+
+        # ── codespace tools (guarded) ─────────────────────────────────────────
         elif function_name in ("cs_run_shell", "cs_write_file", "cs_read_file",
                                "cs_patch_file", "cs_list_files", "cs_run_python",
                                "cs_connect", "cs_create", "cs_status",
                                "cs_list_codespaces"):
-            # File-bearing codespace ops: guard the path
             for farg in ("file_path", "path"):
                 raw = args.get(farg)
                 if raw:
@@ -367,13 +475,13 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
                         _safe_path(raw, write=write)
                     except GuardError as e:
                         return _guard_error_result(function_name, raw, e)
-
             try:
                 from func.codespace_tools import dispatch_cs
                 result = dispatch_cs(function_name, args, working_directory)
             except ImportError:
                 result = "Codespace tools not installed."
 
+        # ── unknown ───────────────────────────────────────────────────────────
         else:
             result = f"Unknown function: '{function_name}'"
             console.print(f"  [red]{result}[/red]")
@@ -389,6 +497,19 @@ def call_function(function_call: types.FunctionCall, verbose: bool = False) -> t
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
+    finally:
+        # ── Recording hook: END ───────────────────────────────────────────────
+        # Always fires — captures result, duration, success/failure.
+        # No-op if no session is active or module not installed.
+        if _call_index is not None:
+            try:
+                from func.sys_agent_recording import hook_tool_result
+                _duration_ms = (time.perf_counter() - _t0) * 1000
+                hook_tool_result(_call_index, function_name, str(result), _duration_ms)
+            except ImportError:
+                pass
+
+    # ── Return to AI ──────────────────────────────────────────────────────────
     return types.Content(
         role="user",
         parts=[types.Part(
