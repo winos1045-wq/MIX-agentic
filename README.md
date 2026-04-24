@@ -355,4 +355,10 @@ Built by **Mohamed FAAFAA**
 Model: `gemma-4-26b-a4b-it` via Google Gemini API
 
 
-## تحيا الـــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــعلوم الطبيعية 
+## تحيا الـــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــــعلوم الطبيعية
+
+hhhhhhhhhhhhhhhhhhhhh
+<img width="664" height="268" alt="image" src="https://github.com/user-attachments/assets/272ac161-9c24-4101-9b1e-f447e0ceec3e" />
+
+<img width="1900" height="1023" alt="image" src="https://github.com/user-attachments/assets/9b72b20a-0d6e-46a1-8347-1b8a3bca7c2b" />
+
