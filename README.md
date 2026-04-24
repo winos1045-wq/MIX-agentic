@@ -360,5 +360,10 @@ Model: `gemma-4-26b-a4b-it` via Google Gemini API
 hhhhhhhhhhhhhhhhhhhhh
 <img width="664" height="268" alt="image" src="https://github.com/user-attachments/assets/272ac161-9c24-4101-9b1e-f447e0ceec3e" />
 
-<img width="1900" height="1023" alt="image" src="https://github.com/user-attachments/assets/9b72b20a-0d6e-46a1-8347-1b8a3bca7c2b" />
+<img width="1900" height="1023" alt="image" src="https://github.com/user-attachments/assets/9b72b20a-0d6e-46a1-8347-1b8a3bca7c2b" 
+
+
+  <img width="1905" height="1001" alt="image" src="https://github.com/user-attachments/assets/85c54c38-2b0c-4400-9426-cfe08e900e22" />
+
+
 
