@@ -41,9 +41,25 @@ from func.sys_agent_recording import (
     schema_recording_snapshot,
     schema_recording_analyze,
 )
- 
+
 
 from call_function import call_function
+
+# ─── PATCH 0 — Inngest observability imports ──────────────────────────────────
+from inngest_layer import (
+    emit_session_start,
+    emit_session_complete,
+    emit_ai_generate_start,
+    emit_ai_generate_complete,
+    emit_tool_call,
+    emit_error,
+    set_hook_context,
+    is_inngest_available,
+    start_background as inngest_start_background,
+)
+
+_INNGEST_ON = False   # flipped to True in main() if the layer is reachable
+# ─────────────────────────────────────────────────────────────────────────────
 
 env_file = Path(__file__).parent / ".env"
 if env_file.exists():
@@ -388,6 +404,37 @@ class TokenCounter:
 # LOGGER
 # ============================================================================
 
+import contextlib as _contextlib
+
+@_contextlib.contextmanager
+def _quiet():
+    """Suppress any direct stdout/stderr writes (e.g. inngest_layer print output)."""
+    with open(os.devnull, 'w') as _null:
+        old_out, old_err = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = _null, _null
+        try:
+            yield
+        finally:
+            sys.stdout, sys.stderr = old_out, old_err
+
+
+class _SuppressInngest(logging.Filter):
+    """Drop any log record that originates from the inngest observability layer."""
+    _PREFIXES = ("inngest",)
+    _KEYWORDS = (
+        "Session opened", "Session closed", "AI call",
+        "Iteration ", "Final answer", "Tool call", "Error event",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if any(record.name.startswith(p) for p in self._PREFIXES):
+            return False
+        msg = record.getMessage()
+        if any(kw in msg for kw in self._KEYWORDS):
+            return False
+        return True
+
+
 class Logger:
     def __init__(self):
         self.monitoring_enabled = False
@@ -398,6 +445,14 @@ class Logger:
         )
         self.logger = logging.getLogger("MIX")
         self._set_external(False)
+        # Silence inngest_layer regardless of what logger name it uses internally
+        _f = _SuppressInngest()
+        for _h in logging.root.handlers:
+            _h.addFilter(_f)
+        for _name in ("inngest_layer", "inngest"):
+            _lg = logging.getLogger(_name)
+            _lg.setLevel(logging.WARNING)
+            _lg.propagate = False
 
     def enable_monitoring(self):
         self.monitoring_enabled = True
@@ -828,6 +883,7 @@ class UI:
             padding=(1, 2),
         ))
         self.console.print()
+
     # ── separator ─────────────────────────────────────────────────────────────
 
     def separator(self, label: str = ""):
@@ -977,7 +1033,7 @@ class UI:
 # ============================================================================
 
 class MIXAgent:
-    MODEL = 'gemma-4-31b-it' ##lower gemma-4-26b-a4b-it
+    MODEL = 'gemma-4-26b-a4b-it' ##lower gemma-4-26b-a4b-it
 
     SYSTEM_PROMPT = System_prompt
 
@@ -1005,7 +1061,6 @@ class MIXAgent:
         if mem_context:
             self.SYSTEM_PROMPT = self.SYSTEM_PROMPT + f"\n\n{mem_context}"
 
-
         from func.web_fetch_search import reset_search_count
         reset_search_count()
         self.command_handler = CommandHandler(
@@ -1026,9 +1081,9 @@ class MIXAgent:
             schema_get_files_info, schema_get_file_content, schema_run_python_file, schema_write_file, schema_run_shell,
             schema_build_project, schema_install_dependencies, schema_patch_file, schema_plan_project,
             schema_search_code, schema_get_project_map, schema_verify_change,
-            schema_web_search, schema_web_fetch , schema_task_decomposer , schema_benchmark_solution ,
+            schema_web_search, schema_web_fetch, schema_task_decomposer, schema_benchmark_solution,
             schema_remember_fact, schema_recall_fact, schema_forget_fact, schema_list_facts,
-            schema_recording_start,schema_recording_stop,schema_recording_snapshot,schema_recording_analyze,
+            schema_recording_start, schema_recording_stop, schema_recording_snapshot, schema_recording_analyze,
         ] + list(_cs_schemas)
         return types.GenerateContentConfig(
             tools=[types.Tool(function_declarations=schemas)],
@@ -1056,6 +1111,8 @@ class MIXAgent:
         )
         return messages
 
+    # ── PATCH 2 — process_request() with full Inngest observability ───────────
+
     def process_request(self, user_input: str, verbose: bool = False):
         injected_input, _ = self._preprocess_input(user_input)
         self.session.add_message("user", user_input)
@@ -1064,27 +1121,123 @@ class MIXAgent:
         if self.group.is_active:
             self.group.set_status("thinking")
 
+        # ── Inngest: session start ────────────────────────────────────────────
+        _session_id    = self.session.session_id
+        _t_session     = time.perf_counter()
+        _tool_count    = 0
+        _total_tok_in  = 0
+        _total_tok_out = 0
+        if _INNGEST_ON:
+            with _quiet(): emit_session_start(_session_id, user_input)
+        # ─────────────────────────────────────────────────────────────────────
+
         self.status.start("Thinking")
         last_req_counts: Optional[dict] = None
 
         try:
             for iteration in range(self.max_iterations):
-                response = self.client.models.generate_content(
-                    model=self.MODEL,
-                    contents=messages,
-                    config=self._config,
-                )
+
+                # ── Inngest: set hook context for this iteration ──────────────
+                if _INNGEST_ON:
+                    set_hook_context(_session_id, iteration)
+                # ─────────────────────────────────────────────────────────────
+
+                # ── Inngest: pre-generate emit ────────────────────────────────
+                _prompt_prev = ""
+                if messages:
+                    last_parts = getattr(messages[-1], "parts", [])
+                    if last_parts:
+                        _prompt_prev = str(getattr(last_parts[-1], "text", ""))[:200]
+                if _INNGEST_ON:
+                    emit_ai_generate_start(
+                        session_id=_session_id,
+                        iteration=iteration,
+                        model=self.MODEL,
+                        message_count=len(messages),
+                        prompt_preview=_prompt_prev,
+                    )
+                # ─────────────────────────────────────────────────────────────
+
+                _t_gen = time.perf_counter()
+
+                _max_retries = 3
+                _retry_delays = [2, 5, 10]
+                response = None
+                for _attempt in range(_max_retries):
+                    try:
+                        response = self.client.models.generate_content(
+                            model=self.MODEL,
+                            contents=messages,
+                            config=self._config,
+                        )
+                        break
+                    except Exception as _api_err:
+                        _err_str = str(_api_err)
+                        if "500" in _err_str or "INTERNAL" in _err_str:
+                            if _attempt < _max_retries - 1:
+                                _wait = _retry_delays[_attempt]
+                                self.status.stop()
+                                self.ui.console.print(
+                                    f"  [{Theme.YELLOW}]API 500 — retrying in {_wait}s "
+                                    f"(attempt {_attempt + 1}/{_max_retries})[/{Theme.YELLOW}]"
+                                )
+                                time.sleep(_wait)
+                                self.status.start("Thinking")
+                            else:
+                                raise
+                        else:
+                            raise
+
+                _gen_ms = (time.perf_counter() - _t_gen) * 1000
 
                 if response is None or response.usage_metadata is None:
                     self.status.stop()
-                    self.ui.error("Response Error",
-                                  "Empty or malformed response from API")
+                    self.ui.error("Response Error", "Empty or malformed response from API")
+                    # ── Inngest: error emit ───────────────────────────────────
+                    if _INNGEST_ON:
+                        emit_error(_session_id, iteration,
+                                   "ResponseError",
+                                   "Empty or malformed API response",
+                                   f"iter={iteration}")
+                    # ─────────────────────────────────────────────────────────
                     return
 
                 req_counts      = self.tokens.record(response.usage_metadata)
                 last_req_counts = req_counts
                 self.status.update_tokens(prompt=req_counts["prompt"],
                                           completion=req_counts["completion"])
+
+                # ── Inngest: post-generate emit ───────────────────────────────
+                _has_fc   = bool(response.function_calls)
+                _fc_names = [fc.name for fc in (response.function_calls or [])]
+                _resp_txt = ""
+                if not _has_fc:
+                    try:
+                        _resp_txt = response.text[:200]
+                    except Exception:
+                        pass
+                _p_tok  = req_counts["prompt"]
+                _c_tok  = req_counts["completion"]
+                _th_tok = req_counts.get("thinking", 0)
+                _ca_tok = req_counts.get("cached", 0)
+                _total_tok_in  += _p_tok
+                _total_tok_out += _c_tok
+                if _INNGEST_ON:
+                    emit_ai_generate_complete(
+                        session_id=_session_id,
+                        iteration=iteration,
+                        model=self.MODEL,
+                        message_count=len(messages),
+                        prompt_tokens=_p_tok,
+                        completion_tokens=_c_tok,
+                        thinking_tokens=_th_tok,
+                        cached_tokens=_ca_tok,
+                        latency_ms=_gen_ms,
+                        has_function_calls=_has_fc,
+                        function_call_names=_fc_names,
+                        response_preview=_resp_txt,
+                    )
+                # ─────────────────────────────────────────────────────────────
 
                 if verbose and not response.function_calls:
                     self.status.stop()
@@ -1121,12 +1274,29 @@ class MIXAgent:
                                 f"  [{Theme.RED}]Blocked[/{Theme.RED}]"
                                 f"  [{Theme.SLATE}]{fc.name}[/{Theme.SLATE}]"
                             )
+                            # ── Inngest: blocked tool emit ────────────────────
+                            if _INNGEST_ON:
+                                emit_tool_call(
+                                    _session_id, iteration,
+                                    fc.name, dict(fc.args),
+                                    "Blocked: path not allowed",
+                                    duration_ms=0,
+                                    success=False,
+                                    blocked=True,
+                                )
+                            # ─────────────────────────────────────────────────
                             continue
 
+                        _t_tool = time.perf_counter()
                         result_msg = call_function(fc, verbose)
+                        _tool_ms = (time.perf_counter() - _t_tool) * 1000
+
                         messages.append(result_msg)
+                        _tool_count += 1
 
                         result_content = ""
+                        _tool_success  = True
+                        _tool_err      = ""
                         try:
                             if (result_msg.parts and
                                     result_msg.parts[0].function_response):
@@ -1134,10 +1304,27 @@ class MIXAgent:
                                     result_msg.parts[0].function_response
                                     .response.get("result", "")
                                 )
+                                # detect failures by prefix
+                                if result_content.startswith(("Error in ", "🔒")):
+                                    _tool_success = False
+                                    _tool_err = result_content[:120]
                         except Exception:
                             pass
-                        self.ui.print_tool_execution(fc.name, fc.args,
-                                                     result_content)
+
+                        self.ui.print_tool_execution(fc.name, fc.args, result_content)
+
+                        # ── Inngest: tool result emit ─────────────────────────
+                        if _INNGEST_ON:
+                            emit_tool_call(
+                                _session_id, iteration,
+                                fc.name, dict(fc.args),
+                                result_content,
+                                duration_ms=_tool_ms,
+                                success=_tool_success,
+                                error_msg=_tool_err,
+                            )
+                        # ─────────────────────────────────────────────────────
+
                     self.status.start("Processing")
 
                 else:
@@ -1155,27 +1342,51 @@ class MIXAgent:
                             self.tokens.format_request(last_req_counts)
                         )
 
+                    # ── Inngest: session complete emit ────────────────────────
+                    if _INNGEST_ON:
+                        emit_session_complete(
+                            session_id=_session_id,
+                            response=response_text,
+                            iterations=iteration + 1,
+                            tokens_in=_total_tok_in,
+                            tokens_out=_total_tok_out,
+                            duration_s=time.perf_counter() - _t_session,
+                            tool_calls_made=_tool_count,
+                        )
+                    # ─────────────────────────────────────────────────────────
+
                     if self.group.is_active:
                         self.group.set_status("idle")
                     return
 
             self.status.stop()
-            self.ui.warning("Limit reached",
-                            f"Hit max iterations ({self.max_iterations}).")
+            self.ui.warning("Limit reached", f"Hit max iterations ({self.max_iterations}).")
 
         except KeyboardInterrupt:
             self.status.stop()
-            self.ui.console.print(
-                f"\n  [{Theme.SLATE}]interrupted[/{Theme.SLATE}]\n"
-            )
+            self.ui.console.print(f"\n  [{Theme.SLATE}]interrupted[/{Theme.SLATE}]\n")
+
         except Exception as e:
             self.status.stop()
             self.ui.error("Error", str(e))
             if self.logger:
                 self.logger.error(f"Error: {e}")
+            # ── Inngest: exception emit ───────────────────────────────────────
+            if _INNGEST_ON:
+                emit_error(
+                    _session_id,
+                    iteration if 'iteration' in dir() else 0,
+                    type(e).__name__,
+                    str(e),
+                    context="process_request loop",
+                )
+            # ─────────────────────────────────────────────────────────────────
+
         finally:
             if self.group.is_active:
                 self.group.set_status("idle")
+
+    # ── end of patched process_request() ─────────────────────────────────────
 
     def _guard_function_call(self, fc: types.FunctionCall) -> bool:
         FILE_ARGS = {"file_path", "path", "working_directory"}
@@ -1285,6 +1496,15 @@ def main():
 
     try:
         agent = MIXAgent(log=log)
+
+        # ── PATCH 1 — Start Inngest observability layer in background ─────────
+        inngest_start_background(port=8001)
+        global _INNGEST_ON
+        _INNGEST_ON = is_inngest_available()
+        if _INNGEST_ON:
+            log.info("Inngest observability layer active.")
+        # ─────────────────────────────────────────────────────────────────────
+
         agent.run_interactive()
     except ValueError:
         console = Console(theme=RICH_THEME)
