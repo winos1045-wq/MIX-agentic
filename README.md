@@ -1,14 +1,14 @@
-# MIX-agentic
+# Marios -agentic
 This is Beta version Development Agent : Advancing 18.7 %
 
 
 
 
-# MIX Agent
+# Marios  Agent
 
 An autonomous agentic AI built on Google Gemini, designed for software engineering and cybersecurity tasks. Runs entirely in the terminal with a rich interactive interface, tool execution loop, file injection, and multi-agent coordination.
 
----
+--- 
 
 ## Table of Contents
 
@@ -48,8 +48,8 @@ An autonomous agentic AI built on Google Gemini, designed for software engineeri
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/winos1045-wq/MIX-agentic.git
-cd mix-agent/llm
+git clone https://github.com/winos1045-wq/Marios -agentic.git
+cd Marios -agent/llm
 ```
 
 **2. Create and activate a virtual environment**
@@ -177,7 +177,7 @@ The injection report is printed before the agent processes your message. Injecte
 
 ## Agent Groups
 
-Agent groups allow multiple running instances of MIX Agent (across different terminals or machines) to coordinate, pass messages, and share work.
+Agent groups allow multiple running instances of Marios  Agent (across different terminals or machines) to coordinate, pass messages, and share work.
 
 **Creating or joining a group:**
 
@@ -250,7 +250,7 @@ The agent has access to the following tools during its execution loop:
 
 ```
 main.py
-  MIXAgent
+  Marios Agent
     SessionManager       -- maintains conversation history (rolling window: 25 messages)
     StatusBar            -- animated spinner with elapsed time and token count
     TokenCounter         -- tracks prompt / completion / thinking / cached tokens
@@ -324,7 +324,7 @@ After each model response, a compact summary is printed:
 ## Project Layout
 
 ```
-mix-agent/
+Marios -agent/
   main.py                  -- entry point, agent loop, UI
   call_function.py         -- dispatches tool calls to implementations
   file_injector.py         -- @path injection logic
