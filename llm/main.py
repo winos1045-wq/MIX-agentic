@@ -1,4 +1,4 @@
-## main.py  —  MIX Agent latest
+## main.py  —  Marios  Agent latest
 import os
 import sys
 import json
@@ -396,7 +396,7 @@ class Logger:
             handlers=[RichHandler(console=Console(theme=RICH_THEME),
                                   show_time=True, show_path=False)]
         )
-        self.logger = logging.getLogger("MIX")
+        self.logger = logging.getLogger("Marios ")
         self._set_external(False)
 
     def enable_monitoring(self):
@@ -783,12 +783,12 @@ class UI:
 
         if not TerminalUtils.is_narrow():
             left = Text(justify="left")
-            left.append(" ✻ MIX Agent\n",                                style=f"bold {Theme.TEXT}")
+            left.append(" ✻ Marios  Agent\n",                                style=f"bold {Theme.TEXT}")
             left.append(" │\n",                                          style=f"dim {Theme.GRAY}")
             left.append(" └── /help for commands  .  @file to inject\n", style=f"italic {Theme.SLATE}")
             left.append("     /agent (beta) link agents\n\n",            style=f"italic {Theme.SLATE}")
             if model_name:
-                left.append(f" {model_name}  .  MIX\n",                 style=f"dim")
+                left.append(f" {model_name}  .  Marios \n",                 style=f"dim")
             left.append(f" {cwd}\n",                                     style=f"dim {Theme.SLATE}")
             left.append(" DEV by : FAHFAH MOHAMED",                      style=f"italic {Theme.SLATE}")
 
@@ -804,12 +804,12 @@ class UI:
             content = layout
         else:
             content = Text(justify="left")
-            content.append("✻ MIX Agent\n",           style=f"bold {Theme.TEXT}")
+            content.append("✻ Marios  Agent\n",           style=f"bold {Theme.TEXT}")
             content.append(robot + "\n",               style=f"bold {Theme.ORANGE}")
             content.append("/help for commands\n",     style=f"italic {Theme.SLATE}")
             content.append("@file to inject\n",        style=f"italic {Theme.SLATE}")
             if model_name:
-                content.append(f"{model_name}  .  MIX\n", style="dim")
+                content.append(f"{model_name}  .  Marios \n", style="dim")
             content.append(f"{cwd}\n",                 style=f"dim {Theme.SLATE}")
             content.append("DEV by : FAHFAH MOHAMED",  style=f"italic {Theme.SLATE}")
 
@@ -916,7 +916,7 @@ class UI:
         self.console.print()
         if agent_tag:
             parts  = [p.strip() for p in agent_tag.split(".")]
-            name   = parts[0] if parts else "MIX"
+            name   = parts[0] if parts else "Marios "
             detail = "  .  ".join(parts[1:]) if len(parts) > 1 else ""
             self.console.print(
                 f"  [{Theme.ORANGE}]|[/{Theme.ORANGE}]  "
@@ -926,7 +926,7 @@ class UI:
         else:
             self.console.print(
                 f"  [{Theme.ORANGE}]|[/{Theme.ORANGE}]  "
-                f"[bold {Theme.TEXT}]MIX[/bold {Theme.TEXT}]"
+                f"[bold {Theme.TEXT}]Marios [/bold {Theme.TEXT}]"
             )
         self._md.render(text)
 
@@ -976,7 +976,7 @@ class UI:
 # AI AGENT
 # ============================================================================
 
-class MIXAgent:
+class Marios Agent:
     MODEL = 'gemma-4-31b-it' ##lower gemma-4-26b-a4b-it
 
     SYSTEM_PROMPT = System_prompt
@@ -1284,7 +1284,7 @@ def main():
     log = Logger()
 
     try:
-        agent = MIXAgent(log=log)
+        agent = Marios Agent(log=log)
         agent.run_interactive()
     except ValueError:
         console = Console(theme=RICH_THEME)
